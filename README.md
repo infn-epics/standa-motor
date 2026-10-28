@@ -1,7 +1,17 @@
 # Standa 8SMC1-USBhF motor control
 
-Python driver and EPICS asyn motor IOC for Standa 8SMC1-USBhF stepper motor
-controllers (USB `10c4:0230`), running on a Raspberry Pi (Debian 13, aarch64).
+EPICS asyn motor support for Standa 8SMC1-USBhF stepper motor controllers
+(USB `10c4:0230`), plus a Python driver and a USB-to-TCP bridge.
+
+```
+ 8SMC1 ×4 ──USB── Raspberry Pi ──TCP:5080── EPICS IOC (anywhere: epik8s pod, PC, ...)
+                  usmc_server.py            standa-motor support (libUSMC)
+```
+
+The controllers speak USB vendor control transfers, not serial, so ser2net
+cannot be used. `python/usmc_server.py` runs on the host they are plugged into
+and forwards the transfers over TCP. The IOC holds all the 8SMC1 protocol logic
+and reaches the bridge through an asyn IP port.
 
 | Axis | PV          | Serial | USB path    |
 |------|-------------|--------|-------------|
@@ -35,8 +45,8 @@ Measured behaviour:
 - Set position only keeps multiples of 32 units (4 full steps): 1000 → 1024.
 
 The `cp210x` serial driver gets force-bound to these devices (`new_id`). That
-creates `/dev/ttyUSB*` / `standa_motorN` nodes, which are of no use here. Both
-drivers detach it.
+creates `/dev/ttyUSB*` / `standa_motorN` nodes, which are of no use here. The bridge
+and the Python driver detach it.
 
 ## Python driver
 
@@ -50,41 +60,85 @@ python3 python/usmc.py -d 6183 stop
 
 Needs `python3-usb` (pyusb). Don't run it while the IOC is moving the same axis.
 
-## EPICS IOC
+## USB-to-TCP bridge
 
-`ioc/` is a standard EPICS application. `USMCDriver.cpp` is an
-`asynMotorController` that uses libusb-1.0, with one axis per USB controller
-selected by serial number.
+```sh
+python3 python/usmc_server.py --bind 0.0.0.0 --port 5080
+```
+
+It needs `python3-usb` and `usmc.py` in the same directory. It can be run with
+`python/usmc-server.service`: copy both `.py` files to `/opt/standa/`, then
+`systemctl enable --now usmc-server`. One line per request:
 
 ```
-USMCCreateController(port, "serial1 serial2 ...", movingPollMs, idlePollMs)
+LIST                                 -> OK <sn>:<bcdDevice> ...
+IN  <sn> <req> <value> <index> <len> -> OK <hexdata>
+OUT <sn> <req> <value> <index> [<hexdata>] -> OK
+```
+
+Only the requests the IOC uses are accepted (state, encoder, serial, go-to,
+mode, parameters, set position, stop). Firmware download, set serial and
+save-to-flash are refused. There is no authentication, so bind the bridge to an
+interface that only the IOC network can reach. The bridge serialises USB access,
+so several clients (the IOC, `nc` for debugging) can share it. The Python
+CLI talks to USB directly; don't use it while the bridge is driving the same
+axis.
+
+## EPICS support module
+
+This repository is an EPICS support module: library `USMC`, `USMCSupport.dbd`,
+`db/standaAxis.db`. Each axis of an `asynMotorController` is one 8SMC1, picked by
+serial number among those the bridge reports.
+
+```
+drvAsynIPPortConfigure("STANDA_BRIDGE", "<pi>:5080", 0, 0, 0)
+USMCCreateController(port, "STANDA_BRIDGE", "serial1 serial2 ...", movingPollMs, idlePollMs)
 USMCConfigLimits(port, enable, limit1ActiveHigh, limit2ActiveHigh)
 ```
 
-Motor records: EGU = full steps, MRES = 0.125, so VELO ranges from 2 to 625 steps/s.
-- Mode bits: CNEN switches motor power. Limit switch 1 maps to the low limit and
-  limit switch 2 to the high limit.
+- Units: motor records use EGU = full steps and MRES = 0.125, so VELO ranges
+  from 2 to 625 steps/s.
+- CNEN switches motor power.
+- Limits: switch 1 is the low limit and switch 2 the high limit.
 - Homing: not supported, since the controller has no home input.
 - Extra PVs: `$(P)$(M):Temperature`, `:Voltage`, `:Serial`, `:Connected`.
-- Power on IOC start: when the IOC connects to an axis, it switches motor power on
-  and sends a SET_MODE with the default mode (limits enabled, active low, current
-  reduction on).
+- Motor power at connect: when the IOC connects to an axis, it powers the motor
+  and sends the default mode (limits enabled, active low, current reduction on).
 
-### Docker
+### epik8s / ibek
 
-The image is built on an arm64 host: EPICS base 7.0.8.1, asyn R4-45, motor R7-3-1.
+The `standa-motor` ibek support lives in `ibek-support-infn`, and the
+`devtype: standa` branch is in the ibek-templates `motor` template. Example
+beamline entry:
+
+```yaml
+standa-mot01:
+  template: motor
+  devtype: standa
+  devgroup: mot
+  iocprefix: SPARC:MOT:STANDA
+  server: 192.168.104.89      # host running usmc_server.py
+  port: 5080
+  devices:
+    - {name: M1, serial: "6183"}
+    - {name: M2, serial: "5912", egu: mm, mres: 0.000625}
+```
+
+### Standalone test IOC
+
+`iocBoot/iocStanda` is built when `BUILD_IOCS = YES`. `docker/` builds it as an
+arm64 image (EPICS base 7.0.8.1, asyn R4-45, motor R7-3-1) for the Pi:
 
 ```sh
 docker/deploy.sh root@192.168.104.89   # build, copy the image, start the container
-```
-
-On the Pi (`docker/run-ioc.sh` is installed as `standa-ioc-run`):
-
-```sh
-docker logs standa-ioc
-docker attach standa-ioc                  # IOC shell, detach with Ctrl-P Ctrl-Q
 docker exec standa-ioc caget STANDA:m1.RBV
 ```
+
+`USMC_BRIDGE` defaults to `127.0.0.1:5080`, i.e. the bridge on the same host.
+The container needs `--ulimit nofile=4096`; with Docker's default limit the CA
+tools spin when they fork `caRepeater`.
+
+## Raspberry Pi notes
 
 The Pi has no direct internet access. apt works through the proxy
 `http://squid.lnf.infn.it:3128`. Its clock is not NTP-synchronised; if it drifts,

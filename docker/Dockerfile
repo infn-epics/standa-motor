@@ -1,4 +1,4 @@
-# EPICS IOC for Standa 8SMC1-USBhF stepper motor controllers.
+# Standalone test IOC for Standa 8SMC1-USBhF controllers (reaches them through usmc_server.py).
 # Build context: repository root.  Target platform: linux/arm64 (Raspberry Pi, Debian 13).
 
 ARG DEBIAN=trixie
@@ -10,7 +10,7 @@ ARG ASYN_TAG=R4-45
 ARG MOTOR_TAG=R7-3-1
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential perl git ca-certificates libreadline-dev re2c \
-        libtirpc-dev libusb-1.0-0-dev pkg-config \
+        libtirpc-dev \
     && rm -rf /var/lib/apt/lists/*
 ENV EPICS_ROOT=/opt/epics
 ENV EPICS_BASE=${EPICS_ROOT}/base
@@ -34,8 +34,12 @@ RUN git clone --depth 1 -b ${MOTOR_TAG} https://github.com/epics-modules/motor.g
 
 # ---------------------------------------------------------------- Standa IOC
 FROM epics AS build
-COPY ioc /opt/epics/ioc/standa
-RUN printf 'SUPPORT=%s\nEPICS_BASE=%s\nASYN=%s\nMOTOR=%s\n' "${EPICS_ROOT}/support" "${EPICS_BASE}" \
+COPY configure /opt/epics/ioc/standa/configure
+COPY standaApp /opt/epics/ioc/standa/standaApp
+COPY iocBoot /opt/epics/ioc/standa/iocBoot
+COPY Makefile /opt/epics/ioc/standa/
+RUN printf 'BUILD_IOCS=YES\n' > /opt/epics/ioc/standa/configure/CONFIG_SITE.local \
+    && printf 'SUPPORT=%s\nEPICS_BASE=%s\nASYN=%s\nMOTOR=%s\n' "${EPICS_ROOT}/support" "${EPICS_BASE}" \
         "${EPICS_ROOT}/support/asyn" "${EPICS_ROOT}/support/motor" \
         > /opt/epics/ioc/standa/configure/RELEASE.local \
     && make -C /opt/epics/ioc/standa -j"$(nproc)"
@@ -43,7 +47,7 @@ RUN printf 'SUPPORT=%s\nEPICS_BASE=%s\nASYN=%s\nMOTOR=%s\n' "${EPICS_ROOT}/suppo
 # ---------------------------------------------------------------- runtime
 FROM debian:${DEBIAN}-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libreadline8t64 libtirpc3t64 libusb-1.0-0 python3 python3-usb \
+        libreadline8t64 libtirpc3t64 \
     && rm -rf /var/lib/apt/lists/*
 ENV EPICS_ROOT=/opt/epics
 ENV EPICS_BASE=${EPICS_ROOT}/base
@@ -56,6 +60,5 @@ COPY --from=build /opt/epics/support/asyn/db   /opt/epics/support/asyn/db
 COPY --from=build /opt/epics/support/motor/lib /opt/epics/support/motor/lib
 COPY --from=build /opt/epics/support/motor/db  /opt/epics/support/motor/db
 COPY --from=build /opt/epics/ioc/standa  /opt/epics/ioc/standa
-COPY python/usmc.py /usr/local/bin/usmc.py
 WORKDIR /opt/epics/ioc/standa/iocBoot/iocStanda
 CMD ["../../bin/linux-aarch64/standa", "st.cmd"]

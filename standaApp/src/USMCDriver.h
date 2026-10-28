@@ -3,8 +3,10 @@
  *
  * Each 8SMC1 is a separate USB device driving one motor, so one EPICS
  * controller (asyn port) groups several USB devices, one per axis, selected
- * by serial number.  Communication is vendor control transfers on EP0 via
- * libusb-1.0; see python/usmc.py for the protocol reference.
+ * by serial number.  The USB devices are reached through usmc_server.py, a
+ * bridge that forwards vendor control transfers received over TCP (one line
+ * per transfer, see python/usmc_server.py).  The 8SMC1 protocol itself is
+ * implemented here; python/usmc.py is the reference.
  *
  * Units: positions in 1/8 full steps, velocities in (1/8 steps)/s.
  */
@@ -12,7 +14,6 @@
 #define USMC_DRIVER_H
 
 #include <string>
-#include <libusb.h>
 
 #include "asynMotorController.h"
 #include "asynMotorAxis.h"
@@ -35,7 +36,6 @@ class epicsShareClass USMCAxis : public asynMotorAxis
 {
 public:
     USMCAxis(class USMCController *pC, int axisNo, const char *serial);
-    ~USMCAxis();
     void report(FILE *fp, int level);
     asynStatus move(double position, int relative, double minVelocity, double maxVelocity, double acceleration);
     asynStatus moveVelocity(double minVelocity, double maxVelocity, double acceleration);
@@ -48,17 +48,17 @@ public:
 private:
     asynStatus connect();
     void disconnect();
-    int  ctrlIn(uint8_t req, unsigned char *buf, uint16_t len);
-    int  ctrlOut(uint8_t req, uint16_t value, uint16_t index, unsigned char *buf, uint16_t len);
-    asynStatus check(int rc, const char *what);
+    asynStatus ctrlIn(unsigned req, unsigned char *buf, unsigned len, const char *what);
+    asynStatus ctrlOut(unsigned req, unsigned value, unsigned index, const unsigned char *buf,
+                       unsigned len, const char *what);
     asynStatus getState(USMCState *st);
     asynStatus goTo(int position, double speed);
     asynStatus setMode(bool powerOn);
     asynStatus setParameters(double accelTimeMs);
 
     USMCController *pC_;
-    std::string serial_;
-    libusb_device_handle *handle_;
+    std::string serial_;    // as configured (may be the trailing digits only)
+    std::string device_;    // full 16-char serial reported by the bridge, empty if not connected
     unsigned version_;
     double accelTimeMs_;    // last value sent, <0 if never
     bool powerOn_;
@@ -69,8 +69,8 @@ private:
 class epicsShareClass USMCController : public asynMotorController
 {
 public:
-    USMCController(const char *portName, const char *serials, double movingPollPeriod, double idlePollPeriod);
-    ~USMCController();
+    USMCController(const char *portName, const char *bridgePort, const char *serials,
+                   double movingPollPeriod, double idlePollPeriod);
     void report(FILE *fp, int level);
     USMCAxis *getAxis(asynUser *pasynUser);
     USMCAxis *getAxis(int axisNo);
@@ -89,7 +89,10 @@ protected:
 #define NUM_USMC_PARAMS 4
 
 private:
-    libusb_context *ctx_;
+    asynStatus transact(const char *cmd, std::string &reply);
+
+    std::string bridgePort_;
+    asynUser *pasynUserBridge_;
 
     friend class USMCAxis;
 };

@@ -1,0 +1,11 @@
+# RELEASE - Location of external support modules
+#
+# epics-containers/ibek builds link the global RELEASE as RELEASE.local;
+# standalone builds write RELEASE.local with EPICS_BASE, ASYN and MOTOR.
+#SUPPORT = /epics/support
+#ASYN = $(SUPPORT)/asyn
+#MOTOR = $(SUPPORT)/motor
+#EPICS_BASE = /epics/epics-base
+
+-include $(TOP)/../RELEASE.local
+-include $(TOP)/configure/RELEASE.local

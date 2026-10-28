@@ -5,7 +5,9 @@ include $(TOP)/configure/CONFIG
 DIRS += configure
 DIRS += $(wildcard *Sup)
 DIRS += $(wildcard *App)
+ifeq ($(BUILD_IOCS),YES)
 DIRS += $(wildcard iocBoot)
+endif
 
 define DIR_template
  $(1)_DEPEND_DIRS = configure

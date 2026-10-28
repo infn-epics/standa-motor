@@ -1,0 +1,5 @@
+# CONFIG_SITE
+CHECK_RELEASE = YES
+
+# Build the standalone test IOC in standaApp/src (iocBoot/iocStanda)
+BUILD_IOCS = NO
