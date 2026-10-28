@@ -1,0 +1,10 @@
+# EPICS build products
+O.*
+ioc/bin/
+ioc/lib/
+ioc/dbd/
+ioc/db/
+ioc/include/
+ioc/configure/RELEASE.local
+ioc/iocBoot/*/envPaths
+__pycache__/

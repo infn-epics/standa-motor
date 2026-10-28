@@ -1,0 +1,22 @@
+# Units: EGU = full steps; MRES = 1/8 step (the controller counts in 1/8 steps).
+# Speed range of the controller: 2 .. 625 full steps/s.
+
+file "$(MOTOR)/db/basic_asyn_motor.db"
+{
+pattern
+{ M,   DTYP,        ADDR, DESC,           EGU,     DIR, VELO, VBAS, ACCL, BDST, BVEL, BACC, MRES,  PREC, DHLM,   DLLM,    INIT }
+{ m1,  "asynMotor", 0,    "SMC1 SN 6183", "steps", Pos, 25,   2,    0.2,  0,    25,   0.2,  0.125, 3,    100000, -100000, "" }
+{ m2,  "asynMotor", 1,    "SMC1 SN 5912", "steps", Pos, 25,   2,    0.2,  0,    25,   0.2,  0.125, 3,    100000, -100000, "" }
+{ m3,  "asynMotor", 2,    "SMC1 SN 6098", "steps", Pos, 25,   2,    0.2,  0,    25,   0.2,  0.125, 3,    100000, -100000, "" }
+{ m4,  "asynMotor", 3,    "SMC1 SN 6140", "steps", Pos, 25,   2,    0.2,  0,    25,   0.2,  0.125, 3,    100000, -100000, "" }
+}
+
+file "$(TOP)/db/standaAxis.db"
+{
+pattern
+{ M,  ADDR }
+{ m1, 0 }
+{ m2, 1 }
+{ m3, 2 }
+{ m4, 3 }
+}

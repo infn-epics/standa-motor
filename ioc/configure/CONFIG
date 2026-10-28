@@ -1,0 +1,8 @@
+# CONFIG - Load build configuration data
+CONFIG = $(TOP)/configure
+include $(CONFIG)/CONFIG_APP
+
+# Override the Base definition:
+INSTALL_LOCATION = $(TOP)
+
+-include $(TOP)/configure/CONFIG_SITE.local
