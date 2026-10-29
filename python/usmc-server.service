@@ -1,6 +1,8 @@
 # systemd unit for the Standa 8SMC1 USB-to-TCP bridge.
 # Install: copy python/usmc.py and python/usmc_server.py to /opt/standa/, then
-#   cp usmc-server.service /etc/systemd/system/ && systemctl enable --now usmc-server
+#   cp usmc-server.service /etc/systemd/system/ && systemctl daemon-reload &&
+#   systemctl enable --now usmc-server
+# Listens on all interfaces; to change, use `systemctl edit usmc-server` (see README).
 [Unit]
 Description=Standa 8SMC1-USBhF USB-to-TCP bridge
 After=network-online.target

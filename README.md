@@ -60,15 +60,76 @@ python3 python/usmc.py -d 6183 stop
 
 Needs `python3-usb` (pyusb). Don't run it while the IOC is moving the same axis.
 
-## USB-to-TCP bridge
+## USB-to-TCP bridge (usmc-server)
+
+`python/usmc_server.py` runs on the host the controllers are plugged into. It
+needs `python3-usb` and `usmc.py` in the same directory. Options are `--bind`
+(default `0.0.0.0`), `--port` (default `5080`) and `-v` for debug logging.
+
+### Build
+
+There is nothing to compile: the bridge is two Python files. It needs Python 3
+(tested with 3.13) and pyusb (tested with 1.2.1) on the host. It runs as root
+so it can open the USB devices and detach `cp210x`.
 
 ```sh
-python3 python/usmc_server.py --bind 0.0.0.0 --port 5080
+# on the Pi: no direct internet, so apt goes through the proxy
+export http_proxy=http://squid.lnf.infn.it:3128 https_proxy=http://squid.lnf.infn.it:3128
+apt-get update && apt-get install -y python3-usb
 ```
 
-It needs `python3-usb` and `usmc.py` in the same directory. It can be run with
-`python/usmc-server.service`: copy both `.py` files to `/opt/standa/`, then
-`systemctl enable --now usmc-server`. One line per request:
+If apt complains that signatures are "not live yet" or expired, the Pi's
+clock is wrong. Set it, for example from your machine with
+`ssh root@<pi> date -s "@$(date +%s)"`, then retry.
+
+Try it in the foreground before installing it:
+
+```sh
+python3 python/usmc_server.py -v --bind 127.0.0.1
+```
+
+### Install
+
+```sh
+PI=root@192.168.104.89
+ssh $PI mkdir -p /opt/standa
+scp python/usmc.py python/usmc_server.py python/usmc-server.service $PI:/opt/standa/
+ssh $PI 'cp /opt/standa/usmc-server.service /etc/systemd/system/ &&
+         systemctl daemon-reload && systemctl enable --now usmc-server'
+```
+
+The unit (`python/usmc-server.service`) runs
+`/usr/bin/python3 /opt/standa/usmc_server.py --port 5080`. It restarts on
+failure and starts at boot. To listen on a single interface instead of all
+of them, override `ExecStart` with `systemctl edit usmc-server`:
+
+```ini
+[Service]
+ExecStart=
+ExecStart=/usr/bin/python3 /opt/standa/usmc_server.py --bind 192.168.104.89 --port 5080
+```
+
+### Verify
+
+```sh
+ssh $PI 'systemctl status usmc-server --no-pager; ss -ltn | grep 5080'
+printf 'LIST\n' | nc -w2 192.168.104.89 5080   # from the IOC network
+# OK 0000000000005912:2410 0000000000006098:2410 0000000000006140:2410 0000000000006183:2410
+ssh $PI journalctl -u usmc-server -f            # connects, refused requests, USB errors
+```
+
+`LIST` must show every controller the IOC expects. A controller that is
+unplugged and plugged back in is found again on the next request.
+
+### Update
+
+Copy the new `.py` files to `/opt/standa/` again, then run
+`systemctl restart usmc-server`. IOCs reconnect by themselves. Their axes show
+`:Connected` = 0 for a moment and then come back.
+
+### Protocol
+
+One line per request:
 
 ```
 LIST                                 -> OK <sn>:<bcdDevice> ...
@@ -116,6 +177,7 @@ standa-mot01:
   template: motor
   devtype: standa
   devgroup: mot
+  image: ghcr.io/infn-epics/infn-epics-ioc-runtime:v26.10.29   # first release with standa-motor
   iocprefix: SPARC:MOT:STANDA
   server: 192.168.104.89      # host running usmc_server.py
   port: 5080
@@ -123,6 +185,36 @@ standa-mot01:
     - {name: M1, serial: "6183"}
     - {name: M2, serial: "5912", egu: mm, mres: 0.000625}
 ```
+
+Optional settings: `mres`, `egu`, `velo`, `vbas` and `accl` can be set on a
+device or on the whole IOC. `limitsEnable`, `limit1ActiveHigh` and
+`limit2ActiveHigh` apply to the whole IOC.
+
+### Deploying a change
+
+1. Merge to `main` here. The `infn-epics-ioc` image builds `standa-motor` from
+   `main` (see `ibek-support-infn/standa-motor/standa-motor.install.yml`).
+2. If `ibek-support-infn` or `ibek-templates` changed, bump those submodules in
+   `infn-epics-ioc`.
+3. Tag a release in `infn-epics-ioc` (`vYY.MM.DD`). The tag build publishes
+   `infn-epics-ioc-runtime:<tag>`.
+4. Point `image:` in the beamline `deploy/values.yaml` (for example
+   `epik8-sparc`) at the new tag, then push.
+5. ArgoCD creates or updates the app `<beamline>-<name>-ioc`, for example
+   `sparc-standa-mot01-ioc`. Motor IOCs have no automatic sync, so sync the app
+   yourself:
+
+   ```sh
+   argocd app sync sparc-standa-mot01-ioc
+   kubectl -n sparc logs -f statefulset/standa-mot01   # expect all axes connected
+   ```
+
+The pod needs TCP access to the bridge. If it can't reach the bridge, the IOC
+stops at startup and the pod restarts in a loop.
+
+Don't leave the standalone test IOC (below) running on the same motors as the
+cluster IOC. Both work through the bridge, so a move from one shows up in the
+other.
 
 ### Standalone test IOC
 
