@@ -11,7 +11,7 @@ set -e
 docker rm -f standa-ioc >/dev/null 2>&1 || true
 docker run -dit --name standa-ioc --restart unless-stopped \
     --network host --ulimit nofile=4096:4096 \
-    -v /dev/bus/usb:/dev/bus/usb --device-cgroup-rule='c 189:* rmw' \
+    \
     -e PREFIX="${PREFIX:-STANDA:}" \
     -e USMC_SERIALS="${USMC_SERIALS:-6183 5912 6098 6140}" \
     standa-ioc:latest

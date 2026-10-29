@@ -1,13 +1,15 @@
 #!../../bin/linux-aarch64/standa
-# IOC for Standa 8SMC1-USBhF stepper motor controllers
+# Test IOC for Standa 8SMC1-USBhF controllers, through python/usmc_server.py
 #
 # Environment (defaults below):
-#   PREFIX      PV prefix
+#   PREFIX        PV prefix
+#   USMC_BRIDGE   host:port of usmc_server.py
 #   USMC_SERIALS  space or comma separated controller serials, one per axis (m1, m2, ...)
 
 < envPaths
 
 epicsEnvSet("PREFIX",       "$(PREFIX=STANDA:)")
+epicsEnvSet("USMC_BRIDGE",  "$(USMC_BRIDGE=127.0.0.1:5080)")
 epicsEnvSet("USMC_SERIALS", "$(USMC_SERIALS=6183 5912 6098 6140)")
 epicsEnvSet("PORT",         "USMC1")
 
@@ -15,8 +17,9 @@ cd "$(TOP)"
 dbLoadDatabase "dbd/standa.dbd"
 standa_registerRecordDeviceDriver pdbbase
 
-# USMCCreateController(port, serials, movingPollMs, idlePollMs)
-USMCCreateController("$(PORT)", "$(USMC_SERIALS)", 100, 1000)
+drvAsynIPPortConfigure("$(PORT)_BRIDGE", "$(USMC_BRIDGE)", 0, 0, 0)
+# USMCCreateController(port, bridgePort, serials, movingPollMs, idlePollMs)
+USMCCreateController("$(PORT)", "$(PORT)_BRIDGE", "$(USMC_SERIALS)", 100, 1000)
 # USMCConfigLimits(port, enable, limit1ActiveHigh, limit2ActiveHigh)
 USMCConfigLimits("$(PORT)", 1, 0, 0)
 

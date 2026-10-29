@@ -1,9 +1,0 @@
-# RELEASE - Location of external support modules
-# Paths are set in RELEASE.local (written by docker/Dockerfile).
-#SUPPORT = /opt/epics/support
-#ASYN = $(SUPPORT)/asyn
-#MOTOR = $(SUPPORT)/motor
-#EPICS_BASE = /opt/epics/base
-
--include $(TOP)/../RELEASE.local
--include $(TOP)/configure/RELEASE.local
